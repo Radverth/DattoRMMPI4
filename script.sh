@@ -231,10 +231,20 @@ cat > "$BUILD_DIR/run_cag.sh" << 'ENTRYPOINT'
 #!/bin/bash
 set -e
 
-echo "[$(date)] Installing Datto RMM agent from bundled installer..."
-bash /AgentSetup_Managed.sh
+# Only install the agent on first boot; skip reinstall on container restarts
+if [ ! -f /opt/CentraStage/.installed ]; then
+    echo "[$(date)] Installing Datto RMM agent from bundled installer..."
+    bash /AgentSetup_Managed.sh
+    touch /opt/CentraStage/.installed
+    echo "[$(date)] Agent installed."
+else
+    echo "[$(date)] Agent already installed, starting service..."
+    service CentraStage start 2>/dev/null || \
+    systemctl start CentraStage 2>/dev/null || \
+    /opt/CentraStage/bin/start.sh 2>/dev/null || true
+fi
 
-echo "[$(date)] Agent installed. Keeping container alive..."
+echo "[$(date)] Keeping container alive..."
 
 # Tail agent logs if available
 AGENT_LOG="/var/log/CentraStage"
@@ -243,8 +253,9 @@ if [ -d "$AGENT_LOG" ]; then
 fi
 
 # Monitor agent process and restart if it dies
+# Note: pgrep uses ERE so | (not \|) is the OR operator
 while true; do
-    if ! pgrep -f "CentraStage\|AEMAgent\|cagservice" > /dev/null 2>&1; then
+    if ! pgrep -f "CentraStage|AEMAgent|cagservice" > /dev/null 2>&1; then
         echo "[$(date)] Agent process not found. Attempting restart..."
         service CentraStage start 2>/dev/null || \
         systemctl start CentraStage 2>/dev/null || \
